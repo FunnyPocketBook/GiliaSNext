@@ -1,0 +1,25 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 16
+VisualStudioVersion = 16.0.30611.23
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "GiliaSNext", "GiliaSNext\GiliaSNext.csproj", "{626ACEF2-1B35-4554-8401-7A47A7EC0DCB}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{626ACEF2-1B35-4554-8401-7A47A7EC0DCB}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{626ACEF2-1B35-4554-8401-7A47A7EC0DCB}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{626ACEF2-1B35-4554-8401-7A47A7EC0DCB}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{626ACEF2-1B35-4554-8401-7A47A7EC0DCB}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {44830C7B-2309-489D-9332-695F74B6F6A5}
+	EndGlobalSection
+EndGlobal
