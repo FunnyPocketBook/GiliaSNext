@@ -13,6 +13,7 @@ using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Xml;
 
+// TODO: Error handling
 namespace GiliaSNext.Ilias
 {
     class Ilias
@@ -21,12 +22,14 @@ namespace GiliaSNext.Ilias
         private HttpClient Client;
         private Uri LoginUrl;
         private ConfigBuilder Builder;
-        private IliasFile[] Files;
-        private int DlCounter;
+        private List<IliasFile> Files;
 
         private static string ILIAS_BASE_URL = "https://ilias.uni-konstanz.de/ilias/";
 
-
+        /// <summary>
+        /// Create an instance of Ilias. For each user, create a new instance
+        /// </summary>
+        /// <param name="builder">User configuration</param>
         public Ilias(ConfigBuilder builder)
         {
             Builder = builder;
@@ -35,25 +38,27 @@ namespace GiliaSNext.Ilias
                 AllowAutoRedirect = true
             };
             Client = new HttpClient(HttpHandler);
-            DlCounter = 0;
             Client.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/86.0.4240.183 Safari/537.36");
             Client.DefaultRequestHeaders.Add("Upgrade-Insecure-Requests", "1");
             try
             {
                 string json = File.ReadAllText(Path.Combine(Builder.Config.FileListPath, "files.json"));
-                Files = JsonSerializer.Deserialize<IliasFile[]>(json);
-                Array.Sort(Files);
-
+                Files = JsonSerializer.Deserialize<List<IliasFile>>(json);
             }
-            catch (FileNotFoundException e)
+            catch (FileNotFoundException)
             {
-                Files = new IliasFile[] { };
+                Console.WriteLine($"No files.json found, creating a new one at {Path.Combine(Builder.Config.FileListPath, "files.json")}.");
+                Files = new List<IliasFile>();
             }
         }
 
+        /// <summary>
+        /// Logs into ILIAS and stores the cookies
+        /// </summary>
+        /// <returns>The task object representing integer 0 on success and -1 on failure</returns>
         public async Task<int> Login()
         {
-            LoginUrl = await GetLoginLink();
+            LoginUrl = await GetLoginUrl();
             var postParamsDict = new Dictionary<string, string>
             {
                 { "username", Builder.Config.User },
@@ -61,7 +66,6 @@ namespace GiliaSNext.Ilias
                 { "cmd[doStandardAuthentication]", "Anmelden" }
             };
             FormUrlEncodedContent postParams = new FormUrlEncodedContent(postParamsDict);
-
             Console.WriteLine("[Ilias] Logging in...");
             try
             {
@@ -82,7 +86,11 @@ namespace GiliaSNext.Ilias
             }
         }
 
-        public async Task<Uri> GetLoginLink()
+        /// <summary>
+        /// Gets the login URL for ILIAS since the URL changes with every update
+        /// </summary>
+        /// <returns>The task object representing the login URL</returns>
+        public async Task<Uri> GetLoginUrl()
         {
             try
             {
@@ -100,6 +108,10 @@ namespace GiliaSNext.Ilias
             }
         }
 
+        /// <summary>
+        /// Get the RSS feed
+        /// </summary>
+        /// <returns>The task object representing the XmlDocument of the RSS feed</returns>
         public async Task<XmlDocument> GetRssXml()
         {
             byte[] auth = Encoding.ASCII.GetBytes(Builder.Config.User + ":" + Builder.Config.PasswordRss);
@@ -127,6 +139,42 @@ namespace GiliaSNext.Ilias
             }
         }
 
+
+        public async Task<int> RssDownload(string path)
+        {
+            var rssXml = await GetRssXml();
+            var rssFiles = GetFilesFromXml(rssXml);
+            return await DownloadIliasFiles(path, rssFiles);
+        }
+
+        public async Task ExerciseDownload(string path)
+        {
+            Console.WriteLine("[Ilias] Checking exercise files.");
+            List<Uri> exUrls = await GetExerciseUrls();
+            var combinedExFiles = new List<IliasFile>();
+            var combinedFeedFiles = new List<IliasFile>();
+            var exFileUrls = new List<Task<List<IliasFile>[]>>();
+            foreach (Uri url in exUrls)
+            {
+                exFileUrls.Add(GetExerciseFileUrls(url));
+            }
+            var resultExFileUrls = await Task.WhenAll(exFileUrls);
+            foreach (var r in resultExFileUrls)
+            {
+                combinedExFiles.AddRange(r[0]);
+                combinedFeedFiles.AddRange(r[1]);
+            }
+            var exFileTask = DownloadIliasFiles(path, combinedExFiles);
+            var feedFileTask = DownloadIliasFiles(path, combinedFeedFiles);
+            await Task.WhenAll(exFileTask, feedFileTask);
+            return;
+        }
+
+        /// <summary>
+        /// Gets files to download from RSS feed
+        /// </summary>
+        /// <param name="xmlDoc">RSS feed</param>
+        /// <returns>List of files to download</returns>
         public List<IliasFile> GetFilesFromXml(XmlDocument xmlDoc)
         {
             var rssFiles = new List<IliasFile>();
@@ -134,6 +182,7 @@ namespace GiliaSNext.Ilias
             string subfolderPattern = @"\[(.*?)\]";
             string fileNamePattern = @"]\s(.*): Die Datei";
             string fileIdPattern = @"file_(\d*)";
+            IliasFile[] filesArr = Files.ToArray();
             foreach (XmlNode item in items)
             {
                 if (item.SelectSingleNode(".//link") != null)
@@ -147,10 +196,11 @@ namespace GiliaSNext.Ilias
                         subfolders = subfolders.Select(sub => Util.ReplaceInvalidChars(sub)).ToArray();
                         string fileName = Util.ReplaceInvalidChars(Regex.Match(title, fileNamePattern).Groups[1].Value);
                         int fileId = int.Parse(Regex.Match(link, fileIdPattern).Groups[1].Value);
+                        var fileUrl = new Uri($"https://ilias.uni-konstanz.de/ilias/goto_ilias_uni_file_{fileId}_download.html");
                         DateTime date = DateTime.Parse(item.SelectSingleNode(".//pubDate").InnerText);
-                        IliasFile fileToDownload = new IliasFile(subfolders, fileName, fileId, date);
+                        IliasFile fileToDownload = new IliasFile(subfolders, fileName, fileId, fileUrl, date);
                         if (Array.Exists(Builder.Config.IgnoreFiles, e => e == fileName) || Array.Exists(Builder.Config.IgnoreExtensions, e => e == fileToDownload.Extension) ||
-                            Array.Exists(Files, f => f.Equals(fileToDownload)))
+                            Array.Exists(filesArr, f => f.Equals(fileToDownload)))
                         {
                             continue;
                         }
@@ -158,33 +208,13 @@ namespace GiliaSNext.Ilias
                     }
                 }
             }
-            var jsonOptions = new JsonSerializerOptions
-            {
-                WriteIndented = true
-            };
-            var newFilesJson = new List<IliasFile>(Files);
-            newFilesJson.AddRange(rssFiles);
-            newFilesJson.Sort();
-            string json = JsonSerializer.Serialize(newFilesJson, jsonOptions);
-            File.WriteAllText(Path.Combine(Builder.Config.FileListPath, "files.json"), json);
             return rssFiles;
         }
 
-        public async Task<int> DownloadRssFiles(string path, List<IliasFile> rssFiles)
-        {
-            if (rssFiles.Count == 0)
-                return -1;
-            var taskList = new List<Task>();
-            int counter = 0;
-            foreach (IliasFile file in rssFiles)
-            {
-                taskList.Add(DownloadFile(Path.Combine(path, String.Join(Path.DirectorySeparatorChar, file.Subfolders)), file.Id, file.Name, ++counter, rssFiles.Count));
-            }
-            DlCounter = 0;
-            await Task.WhenAll(taskList.ToArray());
-            return 0;
-        }
-
+        /// <summary>
+        /// Gets exercise URLs from the ILIAS desktop
+        /// </summary>
+        /// <returns>The task object representing the list of URIs to the exercises on success and <c>null</c> on failure</returns>
         public async Task<List<Uri>> GetExerciseUrls()
         {
             var exerciseUrls = new List<Uri>();
@@ -206,27 +236,52 @@ namespace GiliaSNext.Ilias
             }
             catch (TaskCanceledException e)
             {
-                Client.DefaultRequestHeaders.Authorization = null;
                 Console.WriteLine("[Ilias] Fetching exercise URLs timed out.");
                 Console.WriteLine(e.InnerException.Message);
                 return null;
             }
         }
-
-        // TODO: 
-        // - Add exercise and feedback files to files.json and skip those that have already been downloaded
-        // - Assign files to the correct subfolder. Often the files of different courses have the same name (e.g. assignment01.pdf),
-        //   so those files are just overwritten. One way to do it is to track the course name in GetExerciseUrls() and have a separate class
-        public async Task<List<Uri>[]> GetExerciseFileUrls(Uri exercisePageUrl)
+        
+        /// <summary>
+        /// Gets URL to single exercises from <c>exercisePageUrl</c>
+        /// </summary>
+        /// <param name="exercisePageUrl">URL to page where the exercises are listed</param>
+        /// <returns>The task object representing an array of lists where each element is an IliasFile of a single exercise file.
+        /// The index 0 of the array contains exercise files and index 1 contains feedback files. Returns <c>null</c> on failure</returns>
+        public async Task<List<IliasFile>[]> GetExerciseFileUrls(Uri exercisePageUrl)
         {
             try
             {
-                var exerciseFileUrls = new List<Uri>[2];
-                exerciseFileUrls[0] = new List<Uri>();
-                exerciseFileUrls[1] = new List<Uri>();
+                var exerciseFiles = new List<IliasFile>[2];
+                exerciseFiles[0] = new List<IliasFile>();
+                exerciseFiles[1] = new List<IliasFile>();
                 HttpResponseMessage response = await Client.GetAsync(exercisePageUrl);
                 HtmlDocument pageDocument = await Util.LoadHtmlDocument(response);
                 HtmlNodeCollection rows = pageDocument.DocumentNode.SelectNodes("//div[@class='ilInfoScreenSec form-horizontal']");
+                HtmlNodeCollection navigation = pageDocument.DocumentNode.SelectSingleNode("//ol[@class='breadcrumb hidden-print']").SelectNodes(".//li");
+                var navigationSplit = new List<string>();
+                /*
+                 * TODO: Determine the exercise subfolder in a better way
+                 * The trigger word determines when to start adding the categories/subfolders from Ilias to the list.
+                 * This is used to determine which subfolder the exercise files belong to.
+                 * An example of navigation is:
+                 * Magazin, Mathematisch-Naturwissenschaftliche Sektion, Informatik und Informationswissenschaft, Lehrveranstaltungen WS 20/21, Data Visualization: Advanced Topics, Assignments, Assignment 01
+                 */
+                string triggerWord = "Lehrveranstaltungen";
+                var foundTriggerWord = false;
+                foreach (HtmlNode li in navigation)
+                {
+                    string text = li.InnerText;
+                    if (foundTriggerWord)
+                    {
+                        navigationSplit.Add(text);
+                    }
+                    else if (text.StartsWith(triggerWord))
+                    {
+                        foundTriggerWord = true;
+                    }
+                }
+                var tempSubfolders = navigationSplit.Select(sub => Util.ReplaceInvalidChars(sub)).ToArray();
                 foreach (HtmlNode row in rows)
                 {
                     HtmlNodeCollection links = row.SelectNodes(".//a");
@@ -240,97 +295,130 @@ namespace GiliaSNext.Ilias
                                 string href = WebUtility.HtmlDecode(hrefAttribute.Value);
                                 if (href.Contains("file="))
                                 {
+                                    var url = new Uri(ILIAS_BASE_URL + href);
+                                    var query = url.ParseQueryString();
+                                    string fileName = query["file"];
+                                    int fileId = int.Parse(query["ref_id"]);
+                                    var subfolderList = tempSubfolders.ToList();
                                     if (href.Contains("cmd=downloadFile"))
                                     {
-                                        exerciseFileUrls[0].Add(new Uri(ILIAS_BASE_URL + href));
+                                        var file = new IliasFile(tempSubfolders, fileName, fileId, url);
+                                        exerciseFiles[0].Add(file);
                                     }
                                     else if (href.Contains("cmd=downloadFeedbackFile"))
                                     {
-                                        exerciseFileUrls[1].Add(new Uri(ILIAS_BASE_URL + href));
+                                        var file = new IliasFile(tempSubfolders, "feedback_"+fileName, fileId, url);
+                                        exerciseFiles[1].Add(file);
                                     }
                                 }
                             }
                         }
                     }
                 }
-                return exerciseFileUrls;
+                return exerciseFiles;
             }
             catch (TaskCanceledException e)
             {
-                Client.DefaultRequestHeaders.Authorization = null;
                 Console.WriteLine("[Ilias] Fetching exercise file URLs timed out.");
                 Console.WriteLine(e.InnerException.Message);
                 return null;
             }
         }
 
-        public async Task<int> DownloadFile(string path, int id, string fileName = "", int count = -1, int total = -1)
+        /// <summary>
+        /// Downloads file from <c>fileUrl</c> to <c>path</c>
+        /// </summary>
+        /// <param name="path">Path to download directory</param>
+        /// <param name="file">File to download</param>
+        /// <param name="retrying">Retry download on failure</param>
+        /// <returns>The task object representing integer 0 on success and -1 on failure</returns>
+        public async Task<int> DownloadFile(string path, IliasFile file, bool retrying = true)
         {
-            var fileUrl = new Uri($"https://ilias.uni-konstanz.de/ilias/goto_ilias_uni_file_{id}_download.html");
-            await DownloadFile(path, fileUrl, fileName, count, total);
-            return 0;
-        }
-
-        public async Task<int> DownloadFile(string path, Uri fileUrl, string fileName = "", int count = -1, int total = -1, bool retrying = true)
-        {
-            if (fileName == "")
-                fileName = fileUrl.ParseQueryString()["file"];
-
-            if (count > 0 && total > 0)
-                Console.WriteLine($"[{ count }/{ total }] Downloading { fileName }");
-            else
-                Console.WriteLine($"Downloading { fileName }");
             try
             {
-                HttpResponseMessage response = await Client.GetAsync(fileUrl);
-                string lastModified = response.Content.Headers.LastModified.ToString();
+                HttpResponseMessage response = await Client.GetAsync(file.Url);
                 if (response.IsSuccessStatusCode)
                 {
+                    var lastModified = DateTime.Parse(response.Content.Headers.LastModified.ToString());
+                    file.LastModified = lastModified;
+                    bool updated = false;
+                    if (Files.Count > 0)
+                    {
+                        IliasFile currentFile = Files.Find(f => f.Matches(file));
+                        var idx = Files.FindIndex(f => f.Matches(file));
+                        if (currentFile != null)
+                        {
+                            if (currentFile.LastModified.CompareTo(file.LastModified) >= 0 && currentFile.Date.CompareTo(file.Date) >= 0)
+                                return 0;
+                            updated = true;
+                            Files[idx] = file;
+                        }
+                    }
                     byte[] fileArray = await response.Content.ReadAsByteArrayAsync();
                     Directory.CreateDirectory(path);
                     try
                     {
-                        await File.WriteAllBytesAsync(Path.Combine(path, fileName), fileArray);
-                        if (count > 0 && total > 0)
-                            Console.WriteLine($"[{ ++DlCounter }/{ total }] Downloaded { fileName }");
-                        else
-                            Console.WriteLine($"Downloaded { fileName }");
+                        await File.WriteAllBytesAsync(Path.Combine(path, file.Name), fileArray);
+                        if (!updated)
+                            Files.Add(file);
+                        Console.WriteLine($"[Ilias] Downloaded { file.Name }");
                         return 0;
                     }
                     catch (AggregateException e)
                     {
                         if (!retrying)
                         {
-                            Console.WriteLine($"An error occurred while writing { fileName }. Please check manually if the file is correct.");
+                            Console.WriteLine($"[Ilias] An error occurred while writing { file.Name }. Please check manually if the file is correct.");
                             Console.WriteLine(e);
                             return -1;
                         }
-                        Console.WriteLine($"An error occurred while writing { fileName }. Retrying.");
+                        Console.WriteLine($"[Ilias] An error occurred while writing { file.Name }. Retrying.");
                         Console.WriteLine(e);
-                        return await DownloadFile(path, fileUrl, fileName, count, total, false);
+                        return await DownloadFile(path, file, false);
                     }
                 }
                 return -1;
             }
             catch (TaskCanceledException e)
             {
-                Client.DefaultRequestHeaders.Authorization = null;
-                Console.WriteLine($"[Ilias] Downloading { fileName } failed.");
-                Console.WriteLine(e.InnerException.Message);
-                return -1;
+                if (!retrying)
+                {
+                    Console.WriteLine($"[Ilias] Downloading { file.Name } failed.");
+                    Console.WriteLine(e.InnerException.Message);
+                    return -1;
+                }
+                Console.WriteLine($"[Ilias] An error occurred while downloading { file.Name }. Retrying.");
+                Console.WriteLine(e);
+                return await DownloadFile(path, file, false);
             }
         }
 
-        public Task DownloadFiles(string path, List<Uri> urls)
+        /// <summary>
+        /// Downloads files taken from RSS feed and track downloaded files
+        /// </summary>
+        /// <param name="path">Path to download directory</param>
+        /// <param name="rssFiles">List of files to download</param>
+        public async Task<int> DownloadIliasFiles(string path, List<IliasFile> rssFiles)
         {
-            var taskList = new List<Task>();
-            int counter = 0;
-            foreach (Uri fileUrl in urls)
+            if (rssFiles.Count == 0)
+                return 0;
+            var taskList = new List<Task<int>>();
+            foreach (IliasFile file in rssFiles)
             {
-                taskList.Add(DownloadFile(path, fileUrl, count: ++counter, total: urls.Count));
+                taskList.Add(DownloadFile(Path.Combine(path, string.Join(Path.DirectorySeparatorChar, file.Subfolders)), file));
             }
-            DlCounter = 0;
-            return Task.WhenAll(taskList.ToArray());
+            await Task.WhenAll(taskList);
+            return 0;
+        }
+
+        public void SaveJsonFile()
+        {
+            var jsonOptions = new JsonSerializerOptions
+            {
+                WriteIndented = true
+            };
+            string json = JsonSerializer.Serialize(Files, jsonOptions);
+            File.WriteAllText(Path.Combine(Builder.Config.FileListPath, "files.json"), json);
         }
     }
 }

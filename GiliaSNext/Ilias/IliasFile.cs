@@ -10,15 +10,18 @@ namespace GiliaSNext.Ilias
         public string[] Subfolders { get; set; }
         public string Name { get; set; }
         public int Id { get; set; }
+        public Uri Url { get; set; }
         public DateTime Date { get; set; }
         public DateTime LastModified { get; set; }
 
-        public IliasFile(string[] subfolders, string name, int id, DateTime date)
+        public IliasFile(string[] subfolders, string name, int id, Uri url, DateTime date = new DateTime(), DateTime lastModified = new DateTime())
         {
             Subfolders = subfolders;
             Name = name;
             Id = id;
+            Url = url;
             Date = date;
+            LastModified = lastModified;
         }
 
         public IliasFile()
@@ -45,10 +48,19 @@ namespace GiliaSNext.Ilias
         {
             if (other == null)
                 return false;
-            return this.Subfolders.SequenceEqual(other.Subfolders) &&
-                this.Name == other.Name && this.Id == other.Id &&
-                this.Date.CompareTo(other.Date) == 0 && 
-                this.LastModified.CompareTo(other.LastModified) == 0;
+            return Subfolders.SequenceEqual(other.Subfolders) &&
+                Name == other.Name && Id == other.Id &&
+                Url == other.Url && Date.CompareTo(other.Date) == 0 &&
+                LastModified.CompareTo(other.LastModified) == 0;
+        }
+
+        public bool Matches(IliasFile other)
+        {
+            if (other == null)
+                return false;
+            return Subfolders.SequenceEqual(other.Subfolders) &&
+                Name == other.Name && Id == other.Id &&
+                Url == other.Url;
         }
 
         public int CompareTo(IliasFile other)

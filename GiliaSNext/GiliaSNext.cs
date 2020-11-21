@@ -1,7 +1,6 @@
 ﻿using GiliaSNext.Config;
+using GiliaSNext.Ilias;
 using System;
-using System.Collections.Generic;
-using System.IO;
 using System.Threading.Tasks;
 
 namespace GiliaSNext
@@ -13,34 +12,36 @@ namespace GiliaSNext
 
         static void Main(string[] args)
         {
+            AppDomain.CurrentDomain.ProcessExit += new EventHandler(OnProcessExit);
             Builder.Load();
             Ilias = new Ilias.Ilias(Builder);
             Test().Wait();
+            //TestSingleFile().Wait();
         }
 
         static async Task Test()
         {
-            await Ilias.Login();
-            var rssXml = await Ilias.GetRssXml();
-            var rssFiles = Ilias.GetFilesFromXml(rssXml);
-            await Ilias.DownloadRssFiles(Builder.Config.DownloadPath, rssFiles);
-            await DownloadEx();
+            int login = await Ilias.Login();
+            if (login == 0)
+            {
+                var rssDownload = Ilias.RssDownload(Builder.Config.DownloadPath);
+                var exDownload = Ilias.ExerciseDownload(Builder.Config.DownloadPath);
+                await Task.WhenAll(rssDownload, exDownload);
+            }
         }
 
-        static async Task<object> DownloadEx()
+        static async Task TestSingleFile()
         {
-            List<Uri> exUrls = await Ilias.GetExerciseUrls();
-            List<Uri> combinedExUrls = new List<Uri>();
-            List<Uri> combinedFeedUrls = new List<Uri>();
-            foreach (Uri url in exUrls)
-            {
-                List<Uri>[] exFileUrls = await Ilias.GetExerciseFileUrls(url);
-                combinedExUrls.AddRange(exFileUrls[0]);
-                combinedFeedUrls.AddRange(exFileUrls[1]);
-            }
-            await Ilias.DownloadFiles(Path.Combine(Builder.Config.DownloadPath, "exercises"), combinedExUrls);
-            await Ilias.DownloadFiles(Path.Combine(Builder.Config.DownloadPath, "feedback"), combinedFeedUrls);
-            return null;
+            string[] subfolders = new string[] { "Data Visualization- Advanced Topics", "Literature", "lecture03" };
+            Uri url = new Uri("https://ilias.uni-konstanz.de/ilias/goto_ilias_uni_file_1123455_download.html");
+            IliasFile a = new IliasFile(subfolders, "Scatterplot-Splatterplot.pdf", 1123455, url, DateTime.Parse("2020-11-16T09:00:13+01:00"), DateTime.Parse("2020-11-16T09:38:14+01:00"));
+            Ilias.Login().Wait();
+            Ilias.DownloadFile(Builder.Config.DownloadPath, a).Wait();
+        }
+
+        static void OnProcessExit(object sender, EventArgs e)
+        {
+            Ilias.SaveJsonFile();
         }
     }
 }
