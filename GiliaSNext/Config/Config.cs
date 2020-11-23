@@ -16,5 +16,9 @@ namespace GiliaSNext.Config
         public string GitEmail { get; set; } = "first.last@email.com";
         public string GitPassword { get; set; } = "hunter12";
         public string[] GitReposHttp { get; set; } = { };
+        public string SvnUser { get; set; } = "first.last";
+        public string SvnEmail { get; set; } = "first.last@email.com";
+        public string SvnPassword { get; set; } = "hunter12";
+        public string[] SvnReposHttp { get; set; } = { };
     }
 }

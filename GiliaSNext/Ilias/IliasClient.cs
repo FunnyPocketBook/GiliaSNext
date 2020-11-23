@@ -17,7 +17,7 @@ using System.Web;
 // TODO: Error handling
 namespace GiliaSNext.Ilias
 {
-    class Ilias
+    class IliasClient
     {
         private readonly HttpClientHandler HttpHandler;
         private readonly HttpClient Client;
@@ -27,12 +27,13 @@ namespace GiliaSNext.Ilias
         private readonly string[] ExistingFiles;
 
         private static readonly string ILIAS_BASE_URL = "https://ilias.uni-konstanz.de/ilias/";
+        private const string ILIAS_TAG = "[ILIAS]";
 
         /// <summary>
         /// Create an instance of Ilias. For each user, create a new instance
         /// </summary>
         /// <param name="builder">User configuration</param>
-        public Ilias(ConfigBuilder builder)
+        public IliasClient(ConfigBuilder builder)
         {
             Builder = builder;
             HttpHandler = new HttpClientHandler
@@ -44,38 +45,45 @@ namespace GiliaSNext.Ilias
             Client.DefaultRequestHeaders.Add("Upgrade-Insecure-Requests", "1");
             try
             {
+                // Load files that are on the disk in Builder.Config.FileListPath
                 ExistingFiles = Directory.GetFiles(Builder.Config.FileListPath, "*.*", SearchOption.AllDirectories);
                 ExistingFiles = ExistingFiles.Select(path => Path.GetFileName(path)).ToArray();
             }
             catch (UnauthorizedAccessException)
             {
-                Console.WriteLine($"No permission to access {Builder.Config.FileListPath}, aborting.");
+                Console.WriteLine($"{ILIAS_TAG} No permission to access {Builder.Config.FileListPath}, aborting.");
                 throw;
             }
             catch (DirectoryNotFoundException)
             {
-                Console.WriteLine($"No directory {Builder.Config.FileListPath} found, creating path.");
+                Console.WriteLine($"{ILIAS_TAG} No directory {Builder.Config.FileListPath} found, creating path.");
                 Directory.CreateDirectory(Builder.Config.FileListPath);
+            }
+            catch (IOException)
+            {
+                Console.WriteLine($"{ILIAS_TAG} {Builder.Config.FileListPath} is a filename or a network error occurred.");
+                throw;
             }
             try
             {
+                // Load files that are tracked in files.json
                 string json = File.ReadAllText(Path.Combine(Builder.Config.FileListPath, "files.json"));
                 Files = JsonSerializer.Deserialize<List<IliasFile>>(json);
             }
             catch (DirectoryNotFoundException)
             {
-                Console.WriteLine($"No directory for files.json found, creating a new one at {Path.Combine(Builder.Config.FileListPath, "files.json")}.");
+                Console.WriteLine($"{ILIAS_TAG} No directory for files.json found, creating a new one at {Path.Combine(Builder.Config.FileListPath, "files.json")}.");
                 Files = new List<IliasFile>();
             }
             catch (FileNotFoundException)
             {
-                Console.WriteLine($"No files.json found, creating a new one at {Path.Combine(Builder.Config.FileListPath, "files.json")}.");
+                Console.WriteLine($"{ILIAS_TAG} No files.json found, creating a new one at {Path.Combine(Builder.Config.FileListPath, "files.json")}.");
                 Files = new List<IliasFile>();
             }
         }
 
         /// <summary>
-        /// Logs into ILIAS and stores the cookies
+        /// Logs into ILIAS
         /// </summary>
         /// <returns>The task object representing integer 0 on success and -1 on failure</returns>
         public async Task<int> Login()
@@ -88,21 +96,21 @@ namespace GiliaSNext.Ilias
                 { "cmd[doStandardAuthentication]", "Anmelden" }
             };
             FormUrlEncodedContent postParams = new FormUrlEncodedContent(postParamsDict);
-            Console.WriteLine("[Ilias] Logging in...");
+            Console.WriteLine($"{ILIAS_TAG} Logging in...");
             try
             {
                 HttpResponseMessage response = await Client.PostAsync(LoginUrl, postParams);
                 if (!response.IsSuccessStatusCode)
                 {
-                    Console.WriteLine("[Ilias] Status Code {0}", response.StatusCode);
+                    Console.WriteLine($"{ILIAS_TAG} Status Code {0}", response.StatusCode);
                     return -1;
                 }
-                Console.WriteLine("[Ilias] Logged in");
+                Console.WriteLine($"{ILIAS_TAG} Logged in");
                 return 0;
             }
             catch (TaskCanceledException e)
             {
-                Console.WriteLine("[Ilias] Login timed out.");
+                Console.WriteLine($"{ILIAS_TAG} Login timed out.");
                 Console.WriteLine(e.InnerException.Message);
                 return -1;
             }
@@ -124,7 +132,7 @@ namespace GiliaSNext.Ilias
             }
             catch (TaskCanceledException e)
             {
-                Console.WriteLine("[Ilias] Fetching login URL timed out.");
+                Console.WriteLine($"{ILIAS_TAG} Fetching login URL timed out.");
                 Console.WriteLine(e.InnerException.Message);
                 return null;
             }
@@ -136,17 +144,18 @@ namespace GiliaSNext.Ilias
         /// <returns>The task object representing the XmlDocument of the RSS feed</returns>
         public async Task<XmlDocument> GetRssXml()
         {
+            // Basic HTTP authentication
             byte[] auth = Encoding.ASCII.GetBytes(Builder.Config.User + ":" + Builder.Config.PasswordRss);
             Client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Basic", Convert.ToBase64String(auth));
             try
             {
-                Console.WriteLine("[Ilias] Loading RSS feed...");
+                Console.WriteLine($"{ILIAS_TAG} Loading RSS feed...");
                 var watch = new Stopwatch();
                 watch.Start();
                 HttpResponseMessage response = await Client.GetAsync(Builder.Config.RssUrl);
                 Client.DefaultRequestHeaders.Authorization = null;
                 watch.Stop();
-                Console.WriteLine($"[Ilias] It took {watch.ElapsedMilliseconds / 1000.0} seconds to load the feed.");
+                Console.WriteLine($"{ILIAS_TAG} It took {watch.ElapsedMilliseconds / 1000.0} seconds to load the feed.");
                 string pageContents = await response.Content.ReadAsStringAsync();
                 var xmlDoc = new XmlDocument();
                 xmlDoc.LoadXml(pageContents);
@@ -155,7 +164,7 @@ namespace GiliaSNext.Ilias
             catch (TaskCanceledException e)
             {
                 Client.DefaultRequestHeaders.Authorization = null;
-                Console.WriteLine("[Ilias] Fetching login URL timed out.");
+                Console.WriteLine($"{ILIAS_TAG} Fetching login URL timed out.");
                 Console.WriteLine(e.InnerException.Message);
                 return null;
             }
@@ -167,7 +176,6 @@ namespace GiliaSNext.Ilias
             var rssXml = await GetRssXml();
             var rssFiles = GetFilesFromXml(rssXml);
             await DownloadIliasFiles(path, rssFiles);
-            return;
         }
 
         /// <summary>
@@ -177,7 +185,7 @@ namespace GiliaSNext.Ilias
         /// <returns></returns>
         public async Task ExerciseDownload(string path)
         {
-            Console.WriteLine("[Ilias] Checking exercise files.");
+            Console.WriteLine($"{ILIAS_TAG} Checking exercise files.");
             List<Uri> exUrls = await GetExerciseUrls();
             var combinedExFiles = new List<IliasFile>();
             var combinedFeedFiles = new List<IliasFile>();
@@ -195,7 +203,6 @@ namespace GiliaSNext.Ilias
             Task exFileTask = DownloadIliasFiles(path, combinedExFiles);
             Task feedFileTask = DownloadIliasFiles(path, combinedFeedFiles);
             await Task.WhenAll(exFileTask, feedFileTask);
-            return;
         }
 
         /// <summary>
@@ -220,13 +227,14 @@ namespace GiliaSNext.Ilias
                     {
                         string title = item.SelectSingleNode(".//title").InnerText;
                         var subfoldersMatch = Regex.Match(title, subfolderPattern);
-                        var subfolders = subfoldersMatch.Groups[1].Value.Split(" > ");
+                        string[] subfolders = subfoldersMatch.Groups[1].Value.Split(" > ");
                         subfolders = subfolders.Select(sub => Util.ReplaceInvalidChars(sub)).ToArray();
                         string fileName = Util.ReplaceInvalidChars(Regex.Match(title, fileNamePattern).Groups[1].Value);
                         int fileId = int.Parse(Regex.Match(link, fileIdPattern).Groups[1].Value);
                         var fileUrl = new Uri($"https://ilias.uni-konstanz.de/ilias/goto_ilias_uni_file_{fileId}_download.html");
                         DateTime date = DateTime.Parse(item.SelectSingleNode(".//pubDate").InnerText);
                         IliasFile fileToDownload = new IliasFile(subfolders, fileName, fileId, fileUrl, date);
+                        // Skip file if it exists on disk and either is ignored, extension is ignored, or file is not newer
                         if (Array.Exists(ExistingFiles, f => f == fileName) &&
                             (
                                 Array.Exists(Builder.Config.IgnoreFiles, f => f == fileName) ||
@@ -268,7 +276,7 @@ namespace GiliaSNext.Ilias
             }
             catch (TaskCanceledException e)
             {
-                Console.WriteLine("[Ilias] Fetching exercise URLs timed out.");
+                Console.WriteLine($"{ILIAS_TAG} Fetching exercise URLs timed out.");
                 Console.WriteLine(e.InnerException.Message);
                 return null;
             }
@@ -351,7 +359,7 @@ namespace GiliaSNext.Ilias
             }
             catch (TaskCanceledException e)
             {
-                Console.WriteLine("[Ilias] Fetching exercise file URLs timed out.");
+                Console.WriteLine($"{ILIAS_TAG} Fetching exercise file URLs timed out.");
                 Console.WriteLine(e.InnerException.Message);
                 return null;
             }
@@ -371,7 +379,11 @@ namespace GiliaSNext.Ilias
                 HttpResponseMessage response = await Client.GetAsync(file.Url);
                 if (response.IsSuccessStatusCode)
                 {
-                    var lastModified = DateTime.Parse(response.Content.Headers.LastModified.ToString());
+                    DateTime lastModified = new DateTime();
+                    if (response.Content.Headers.LastModified != null)
+                    {
+                        lastModified = DateTime.Parse(response.Content.Headers.LastModified.ToString());
+                    }
                     file.LastModified = lastModified;
                     bool updated = false;
                     if (Files.Count > 0)
@@ -398,17 +410,17 @@ namespace GiliaSNext.Ilias
                         File.WriteAllBytes(Path.Combine(path, file.Name), await fileArray);
                         if (!updated)
                             Files.Add(file);
-                        Console.WriteLine($"[Ilias] Downloaded { file.Name }");
+                        Console.WriteLine($"{ILIAS_TAG} Downloaded { file.Name }");
                         return 0;
                     }
                     catch (IOException)
                     {
                         if (!retrying)
                         {
-                            Console.WriteLine($"[Ilias] An error occurred while writing { file.Name }. Please check manually if the file is correct.");
+                            Console.WriteLine($"{ILIAS_TAG} An error occurred while writing { file.Name }. Please check manually if the file is correct.");
                             return -1;
                         }
-                        Console.WriteLine($"[Ilias] An error occurred while writing { file.Name }. Retrying.");
+                        Console.WriteLine($"{ILIAS_TAG} An error occurred while writing { file.Name }. Retrying.");
                         return await DownloadFile(path, file, false);
                     }
                 }
@@ -418,11 +430,11 @@ namespace GiliaSNext.Ilias
             {
                 if (!retrying)
                 {
-                    Console.WriteLine($"[Ilias] Downloading { file.Name } failed.");
+                    Console.WriteLine($"{ILIAS_TAG} Downloading { file.Name } failed.");
                     Console.WriteLine(e.InnerException.Message);
                     return -1;
                 }
-                Console.WriteLine($"[Ilias] An error occurred while downloading { file.Name }. Retrying.");
+                Console.WriteLine($"{ILIAS_TAG} An error occurred while downloading { file.Name }. Retrying.");
                 Console.WriteLine(e);
                 return await DownloadFile(path, file, false);
             }

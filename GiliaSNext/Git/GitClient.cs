@@ -1,16 +1,11 @@
 ﻿using LibGit2Sharp;
 using LibGit2Sharp.Handlers;
 using System;
-using System.Collections.Generic;
 using System.IO;
-using System.Linq;
-using System.Security;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace GiliaSNext.Git
 {
-    class Git
+    class GitClient
     {
         private readonly string Url;
         private readonly string User;
@@ -18,7 +13,8 @@ namespace GiliaSNext.Git
         private readonly string ParentDir;
         private readonly string Email;
 
-        public Git(string repository, string path, string user, string password, string email)
+        private const string GIT_TAG = "[Git]";
+        public GitClient(string repository, string path, string user, string password, string email)
         {
             Url = repository;
             ParentDir = path;
@@ -39,7 +35,7 @@ namespace GiliaSNext.Git
 
         public void Clone()
         {
-            Console.WriteLine($"[Git] Cloning repo {Name}.");
+            Console.WriteLine($"{GIT_TAG} Cloning repo {Name}.");
             var cloneOptions = new CloneOptions()
             {
                 CredentialsProvider = (_url, _user, _cred) => new UsernamePasswordCredentials
@@ -51,23 +47,23 @@ namespace GiliaSNext.Git
             try
             {
                 Repository.Clone(Url, WorkingDir, cloneOptions);
-                Console.WriteLine($"[Git] Cloned repo {Name}.");
+                Console.WriteLine($"{GIT_TAG} Cloned repo {Name}.");
             }
             catch (RecurseSubmodulesException)
             {
-                Console.WriteLine($"[Git] Couldn't clone repo {Name}.");
+                Console.WriteLine($"{GIT_TAG} Couldn't clone repo {Name}.");
                 throw;
             }
             catch (UserCancelledException)
             {
-                Console.WriteLine($"[Git] Couldn't clone repo {Name}.");
+                Console.WriteLine($"{GIT_TAG} Couldn't clone repo {Name}.");
                 throw;
             }
         }
 
         private void Pull(Repository repo)
         {
-            Console.WriteLine($"[Git] Pulling repo {Name}.");
+            Console.WriteLine($"{GIT_TAG} Pulling repo {Name}.");
             PullOptions options = new PullOptions
             {
                 FetchOptions = new FetchOptions
@@ -88,7 +84,7 @@ namespace GiliaSNext.Git
 
             // Pull
             Commands.Pull(repo, signature, options);
-            Console.WriteLine($"[Git] Pulled repo {Name}.");
+            Console.WriteLine($"{GIT_TAG} Pulled repo {Name}.");
         }
 
         public void ClonePull()
