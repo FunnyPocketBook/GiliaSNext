@@ -24,6 +24,7 @@ namespace GiliaSNext.Ilias
         private Uri LoginUrl;
         private readonly ConfigBuilder Builder;
         private readonly List<IliasFile> Files;
+        private readonly string[] ExistingFiles;
 
         private static readonly string ILIAS_BASE_URL = "https://ilias.uni-konstanz.de/ilias/";
 
@@ -41,6 +42,21 @@ namespace GiliaSNext.Ilias
             Client = new HttpClient(HttpHandler);
             Client.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/86.0.4240.183 Safari/537.36");
             Client.DefaultRequestHeaders.Add("Upgrade-Insecure-Requests", "1");
+            try
+            {
+                ExistingFiles = Directory.GetFiles(Builder.Config.FileListPath, "*.*", SearchOption.AllDirectories);
+                ExistingFiles = ExistingFiles.Select(path => Path.GetFileName(path)).ToArray();
+            }
+            catch (UnauthorizedAccessException)
+            {
+                Console.WriteLine($"No permission to access {Builder.Config.FileListPath}, aborting.");
+                throw;
+            }
+            catch (DirectoryNotFoundException)
+            {
+                Console.WriteLine($"No directory {Builder.Config.FileListPath} found, creating path.");
+                Directory.CreateDirectory(Builder.Config.FileListPath);
+            }
             try
             {
                 string json = File.ReadAllText(Path.Combine(Builder.Config.FileListPath, "files.json"));
@@ -211,8 +227,12 @@ namespace GiliaSNext.Ilias
                         var fileUrl = new Uri($"https://ilias.uni-konstanz.de/ilias/goto_ilias_uni_file_{fileId}_download.html");
                         DateTime date = DateTime.Parse(item.SelectSingleNode(".//pubDate").InnerText);
                         IliasFile fileToDownload = new IliasFile(subfolders, fileName, fileId, fileUrl, date);
-                        if (Array.Exists(Builder.Config.IgnoreFiles, e => e == fileName) || Array.Exists(Builder.Config.IgnoreExtensions, e => e == fileToDownload.Extension) ||
-                            Array.Exists(filesArr, f => f.Equals(fileToDownload)))
+                        if (Array.Exists(ExistingFiles, f => f == fileName) &&
+                            (
+                                Array.Exists(Builder.Config.IgnoreFiles, f => f == fileName) ||
+                                Array.Exists(Builder.Config.IgnoreExtensions, e => e == fileToDownload.Extension) ||
+                                Array.Exists(filesArr, f => f.Equals(fileToDownload))
+                            ))
                         {
                             continue;
                         }
@@ -358,13 +378,18 @@ namespace GiliaSNext.Ilias
                     {
                         IliasFile currentFile = Files.Find(f => f.Matches(file));
                         var idx = Files.FindIndex(f => f.Matches(file));
+                        bool isOnDisk = Array.Exists(ExistingFiles, f => f == file.Name);
                         if (currentFile != null)
                         {
-                            if (currentFile.LastModified.CompareTo(file.LastModified) >= 0 && currentFile.Date.CompareTo(file.Date) >= 0)
-                                return 0;
+                            if (isOnDisk)
+                            {
+                                if (currentFile.LastModified.CompareTo(file.LastModified) >= 0 && currentFile.Date.CompareTo(file.Date) >= 0)
+                                    return 0;
+                            }
                             updated = true;
                             Files[idx] = file;
                         }
+
                     }
                     Task<byte[]> fileArray = response.Content.ReadAsByteArrayAsync();
                     Directory.CreateDirectory(path);

@@ -2,6 +2,7 @@
 using LibGit2Sharp.Handlers;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Security;
 using System.Text;
@@ -14,20 +15,31 @@ namespace GiliaSNext.Git
         private readonly string Url;
         private readonly string User;
         private readonly string Password;
-        private readonly string PathToRepo;
+        private readonly string ParentDir;
         private readonly string Email;
 
         public Git(string repository, string path, string user, string password, string email)
         {
             Url = repository;
-            PathToRepo = path;
+            ParentDir = path;
             User = user;
             Password = password;
             Email = email;
         }
 
-        public string Clone()
+        public string Name
         {
+            get { return Path.GetFileNameWithoutExtension(Url); }
+        }
+
+        public string WorkingDir
+        {
+            get { return Path.Combine(ParentDir, Name); }
+        }
+
+        public void Clone()
+        {
+            Console.WriteLine($"[Git] Cloning repo {Name}.");
             var cloneOptions = new CloneOptions()
             {
                 CredentialsProvider = (_url, _user, _cred) => new UsernamePasswordCredentials
@@ -38,20 +50,24 @@ namespace GiliaSNext.Git
             };
             try
             {
-                return Repository.Clone(Url, PathToRepo, cloneOptions);
+                Repository.Clone(Url, WorkingDir, cloneOptions);
+                Console.WriteLine($"[Git] Cloned repo {Name}.");
             }
             catch (RecurseSubmodulesException)
             {
-                return "";
+                Console.WriteLine($"[Git] Couldn't clone repo {Name}.");
+                throw;
             }
             catch (UserCancelledException)
             {
-                return "";
+                Console.WriteLine($"[Git] Couldn't clone repo {Name}.");
+                throw;
             }
         }
 
         private void Pull(Repository repo)
         {
+            Console.WriteLine($"[Git] Pulling repo {Name}.");
             PullOptions options = new PullOptions
             {
                 FetchOptions = new FetchOptions
@@ -72,13 +88,14 @@ namespace GiliaSNext.Git
 
             // Pull
             Commands.Pull(repo, signature, options);
+            Console.WriteLine($"[Git] Pulled repo {Name}.");
         }
 
-        public void ClonePull(string path)
+        public void ClonePull()
         {
-            if (Repository.IsValid(path))
+            if (Repository.IsValid(WorkingDir))
             {
-                Pull(new Repository(path));
+                Pull(new Repository(WorkingDir));
             }
             else
             {

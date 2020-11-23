@@ -1,16 +1,18 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-  <PropertyGroup>
-    <OutputType>Exe</OutputType>
-    <TargetFramework>net5.0</TargetFramework>
-    <Authors>Ying-Kai Dang</Authors>
-    <RepositoryUrl>https://github.com/FunnyPocketBook/GiliaSNext</RepositoryUrl>
-  </PropertyGroup>
+	<PropertyGroup>
+		<OutputType>Exe</OutputType>
+		<TargetFramework>net5.0</TargetFramework>
+		<Authors>Ying-Kai Dang</Authors>
+		<RepositoryUrl>https://github.com/FunnyPocketBook/GiliaSNext</RepositoryUrl>
+	</PropertyGroup>
 
-  <ItemGroup>
-    <PackageReference Include="HtmlAgilityPack" Version="1.11.28" />
-    <PackageReference Include="LibGit2Sharp" Version="0.26.2" />
-    <PackageReference Include="Newtonsoft.Json" Version="12.0.3" />
-  </ItemGroup>
+	<ItemGroup>
+		<PackageReference Include="HtmlAgilityPack" Version="1.11.28" />
+		<PackageReference Include="LibGit2Sharp" Version="0.26.2" />
+		<PackageReference Include="Newtonsoft.Json" Version="12.0.3" />
+		<PackageReference Include="SharpSvn.1.9-x64" Version="1.9007.3987.251" />
+		<PackageReference Include="WebDav.Client" Version="2.7.0" />
+	</ItemGroup>
 
 </Project>

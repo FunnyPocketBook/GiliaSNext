@@ -1,6 +1,7 @@
 ﻿using GiliaSNext.Config;
 using GiliaSNext.Ilias;
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
 
@@ -16,8 +17,10 @@ namespace GiliaSNext
             AppDomain.CurrentDomain.ProcessExit += new EventHandler(OnProcessExit);
             Builder.Load();
             Ilias = new Ilias.Ilias(Builder);
-            Test().Wait();
-            //TestSingleFile().Wait();
+            var iliasTask = Test();
+            var gitTask = GitRepos();
+            iliasTask.Wait();
+            gitTask.Wait();
         }
 
         static async Task Test()
@@ -31,13 +34,20 @@ namespace GiliaSNext
             }
         }
 
-        static async Task TestSingleFile()
+        static async Task GitRepos()
         {
-            string[] subfolders = new string[] { "Data Visualization- Advanced Topics", "Literature", "lecture03" };
-            Uri url = new Uri("https://ilias.uni-konstanz.de/ilias/goto_ilias_uni_file_1123455_download.html");
-            IliasFile a = new IliasFile(subfolders, "Scatterplot-Splatterplot.pdf", 1123455, url, DateTime.Parse("2020-11-16T09:00:13+01:00"), DateTime.Parse("2020-11-16T09:38:14+01:00"));
-            await Ilias.Login();
-            await Ilias.DownloadFile(Builder.Config.DownloadPath, a);
+            var taskList = new List<Task>();
+            foreach (string url in Builder.Config.GitReposHttp)
+            {
+                var repo = new Git.Git(url, Builder.Config.DownloadPath, Builder.Config.GitUser, Builder.Config.GitPassword, Builder.Config.GitEmail);
+                Task repoTask = new Task(() => repo.ClonePull());
+                repoTask.Start();
+                taskList.Add(repoTask);
+            }
+            foreach (Task task in taskList)
+            {
+                await task;
+            }
         }
 
         static void OnProcessExit(object sender, EventArgs e)
