@@ -12,19 +12,20 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Xml;
+using System.Web;
 
 // TODO: Error handling
 namespace GiliaSNext.Ilias
 {
     class Ilias
     {
-        private HttpClientHandler HttpHandler;
-        private HttpClient Client;
+        private readonly HttpClientHandler HttpHandler;
+        private readonly HttpClient Client;
         private Uri LoginUrl;
-        private ConfigBuilder Builder;
-        private List<IliasFile> Files;
+        private readonly ConfigBuilder Builder;
+        private readonly List<IliasFile> Files;
 
-        private static string ILIAS_BASE_URL = "https://ilias.uni-konstanz.de/ilias/";
+        private static readonly string ILIAS_BASE_URL = "https://ilias.uni-konstanz.de/ilias/";
 
         /// <summary>
         /// Create an instance of Ilias. For each user, create a new instance
@@ -140,13 +141,19 @@ namespace GiliaSNext.Ilias
         }
 
 
-        public async Task<int> RssDownload(string path)
+        public async Task RssDownload(string path)
         {
             var rssXml = await GetRssXml();
             var rssFiles = GetFilesFromXml(rssXml);
-            return await DownloadIliasFiles(path, rssFiles);
+            await DownloadIliasFiles(path, rssFiles);
+            return;
         }
 
+        /// <summary>
+        /// Downloads all exercises and feedback
+        /// </summary>
+        /// <param name="path"></param>
+        /// <returns></returns>
         public async Task ExerciseDownload(string path)
         {
             Console.WriteLine("[Ilias] Checking exercise files.");
@@ -164,8 +171,8 @@ namespace GiliaSNext.Ilias
                 combinedExFiles.AddRange(r[0]);
                 combinedFeedFiles.AddRange(r[1]);
             }
-            var exFileTask = DownloadIliasFiles(path, combinedExFiles);
-            var feedFileTask = DownloadIliasFiles(path, combinedFeedFiles);
+            Task exFileTask = DownloadIliasFiles(path, combinedExFiles);
+            Task feedFileTask = DownloadIliasFiles(path, combinedFeedFiles);
             await Task.WhenAll(exFileTask, feedFileTask);
             return;
         }
@@ -296,7 +303,7 @@ namespace GiliaSNext.Ilias
                                 if (href.Contains("file="))
                                 {
                                     var url = new Uri(ILIAS_BASE_URL + href);
-                                    var query = url.ParseQueryString();
+                                    var query = HttpUtility.ParseQueryString(url.Query);
                                     string fileName = query["file"];
                                     int fileId = int.Parse(query["ref_id"]);
                                     var subfolderList = tempSubfolders.ToList();
@@ -354,26 +361,24 @@ namespace GiliaSNext.Ilias
                             Files[idx] = file;
                         }
                     }
-                    byte[] fileArray = await response.Content.ReadAsByteArrayAsync();
+                    Task<byte[]> fileArray = response.Content.ReadAsByteArrayAsync();
                     Directory.CreateDirectory(path);
                     try
                     {
-                        await File.WriteAllBytesAsync(Path.Combine(path, file.Name), fileArray);
+                        File.WriteAllBytes(Path.Combine(path, file.Name), await fileArray);
                         if (!updated)
                             Files.Add(file);
                         Console.WriteLine($"[Ilias] Downloaded { file.Name }");
                         return 0;
                     }
-                    catch (AggregateException e)
+                    catch (IOException)
                     {
                         if (!retrying)
                         {
                             Console.WriteLine($"[Ilias] An error occurred while writing { file.Name }. Please check manually if the file is correct.");
-                            Console.WriteLine(e);
                             return -1;
                         }
                         Console.WriteLine($"[Ilias] An error occurred while writing { file.Name }. Retrying.");
-                        Console.WriteLine(e);
                         return await DownloadFile(path, file, false);
                     }
                 }
@@ -398,17 +403,17 @@ namespace GiliaSNext.Ilias
         /// </summary>
         /// <param name="path">Path to download directory</param>
         /// <param name="rssFiles">List of files to download</param>
-        public async Task<int> DownloadIliasFiles(string path, List<IliasFile> rssFiles)
+        public async Task DownloadIliasFiles(string path, List<IliasFile> rssFiles)
         {
             if (rssFiles.Count == 0)
-                return 0;
+                return;
             var taskList = new List<Task<int>>();
             foreach (IliasFile file in rssFiles)
             {
                 taskList.Add(DownloadFile(Path.Combine(path, string.Join(Path.DirectorySeparatorChar, file.Subfolders)), file));
             }
             await Task.WhenAll(taskList);
-            return 0;
+            return;
         }
 
         public void SaveJsonFile()

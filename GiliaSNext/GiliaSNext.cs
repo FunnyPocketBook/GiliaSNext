@@ -1,13 +1,14 @@
 ﻿using GiliaSNext.Config;
 using GiliaSNext.Ilias;
 using System;
+using System.IO;
 using System.Threading.Tasks;
 
 namespace GiliaSNext
 {
     class GiliaSNext
     {
-        private static ConfigBuilder Builder = ConfigBuilder.Instance();
+        private static readonly ConfigBuilder Builder = ConfigBuilder.Instance();
         private static Ilias.Ilias Ilias;
 
         static void Main(string[] args)
@@ -35,8 +36,8 @@ namespace GiliaSNext
             string[] subfolders = new string[] { "Data Visualization- Advanced Topics", "Literature", "lecture03" };
             Uri url = new Uri("https://ilias.uni-konstanz.de/ilias/goto_ilias_uni_file_1123455_download.html");
             IliasFile a = new IliasFile(subfolders, "Scatterplot-Splatterplot.pdf", 1123455, url, DateTime.Parse("2020-11-16T09:00:13+01:00"), DateTime.Parse("2020-11-16T09:38:14+01:00"));
-            Ilias.Login().Wait();
-            Ilias.DownloadFile(Builder.Config.DownloadPath, a).Wait();
+            await Ilias.Login();
+            await Ilias.DownloadFile(Builder.Config.DownloadPath, a);
         }
 
         static void OnProcessExit(object sender, EventArgs e)
