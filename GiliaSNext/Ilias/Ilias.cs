@@ -46,6 +46,11 @@ namespace GiliaSNext.Ilias
                 string json = File.ReadAllText(Path.Combine(Builder.Config.FileListPath, "files.json"));
                 Files = JsonSerializer.Deserialize<List<IliasFile>>(json);
             }
+            catch (DirectoryNotFoundException)
+            {
+                Console.WriteLine($"No directory for files.json found, creating a new one at {Path.Combine(Builder.Config.FileListPath, "files.json")}.");
+                Files = new List<IliasFile>();
+            }
             catch (FileNotFoundException)
             {
                 Console.WriteLine($"No files.json found, creating a new one at {Path.Combine(Builder.Config.FileListPath, "files.json")}.");
@@ -248,7 +253,7 @@ namespace GiliaSNext.Ilias
                 return null;
             }
         }
-        
+
         /// <summary>
         /// Gets URL to single exercises from <c>exercisePageUrl</c>
         /// </summary>
@@ -314,7 +319,7 @@ namespace GiliaSNext.Ilias
                                     }
                                     else if (href.Contains("cmd=downloadFeedbackFile"))
                                     {
-                                        var file = new IliasFile(tempSubfolders, "feedback_"+fileName, fileId, url);
+                                        var file = new IliasFile(tempSubfolders, "feedback_" + fileName, fileId, url);
                                         exerciseFiles[1].Add(file);
                                     }
                                 }
